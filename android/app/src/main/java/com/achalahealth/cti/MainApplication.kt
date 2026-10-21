@@ -1,4 +1,4 @@
-package com.reactnativecallkeepdemo
+package com.achalahealth.cti
 
 import android.app.Application
 import com.facebook.react.PackageList

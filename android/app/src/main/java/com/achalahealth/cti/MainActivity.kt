@@ -1,4 +1,4 @@
-package com.reactnativecallkeepdemo
+package com.achalahealth.cti
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

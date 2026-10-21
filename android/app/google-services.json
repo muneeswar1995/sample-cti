@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "552357318513",
+    "project_id": "ahs-cti",
+    "storage_bucket": "ahs-cti.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:552357318513:android:7ed99d4d6b4fe7b53cf0d0",
+        "android_client_info": {
+          "package_name": "com.achalahealth.cti"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB9e2v4geexbDdmjvJ0UdagK0jP3kfbjK4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
