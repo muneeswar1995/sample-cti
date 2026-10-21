@@ -1,0 +1,44 @@
+
+workflows:
+  ahs-cti-ios:
+    name: AHS CTI - iOS Release
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+
+    environment:
+      node: v22.11.0
+      xcode: latest
+      cocoapods: default
+
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.achalahealth.cti
+
+      vars:
+        XCODE_WORKSPACE: "ReactNativeCallKeepDemo.xcworkspace"
+        XCODE_SCHEME: "ReactNativeCallKeepDemo"
+
+    scripts:
+      - name: Install npm dependencies
+        script: |
+          npm ci
+
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios
+          pod install
+
+      - name: Configure iOS signing
+        script: |
+          xcode-project use-profiles
+
+      - name: Build signed IPA
+        script: |
+          xcode-project build-ipa \
+            --workspace "$CM_BUILD_DIR/ios/$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
