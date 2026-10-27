@@ -1,9 +1,12 @@
-# Build the Main App on GitHub runners: Android APK and/or iOS app.
+# Build the bare React Native Main App (AHS CTI) on GitHub Actions.
 #
 # Save as: .github/workflows/build-main-app.yml
-# Assumption: package.json and app.json are in the repository root.
+# Assumes package.json, package-lock.json, android/, and ios/ are in repository root.
 #
-# Run from Actions > Build Main App > Run workflow.
+# This is a React Native CLI project, not an Expo project. It does NOT run
+# `expo prebuild`; native Android/iOS projects must already exist in the repo.
+#
+# Run: Actions > Build Main App > Run workflow
 # Choose android, ios, or both.
 #
 # Optional Android signing secrets:
@@ -14,8 +17,7 @@
 #   IOS_CERT_P12_BASE64, IOS_CERT_PASSWORD,
 #   IOS_PROFILE_BASE64, IOS_TEAM_ID
 #
-# Without iOS signing secrets, the workflow builds an iOS Simulator app ZIP,
-# not an installable IPA for a physical iPhone.
+# Without iOS signing secrets, this builds a simulator .app ZIP, not an iPhone IPA.
 
 name: Build Main App
 
@@ -61,7 +63,6 @@ jobs:
       EXPO_PUBLIC_API_BASE_URL: ${{ inputs.api_base_url }}
       EXPO_PUBLIC_SIP_WS_URL: ${{ inputs.sip_ws_url }}
       EXPO_PUBLIC_TENANT_SLUG: ${{ inputs.tenant_slug }}
-      EXPO_NO_TELEMETRY: '1'
       CI: 'true'
 
     steps:
@@ -82,20 +83,15 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Install dependencies
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Verify native Android project
         run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install --no-audit --no-fund
-          fi
-
-      # The optional @caro/react-native-calling patch step was removed because
-      # the script is missing from the installed package in the current build.
-      # Re-add only after confirming the script exists and is required.
-
-      - name: Generate Android project
-        run: npx expo prebuild --platform android --no-install
+          test -f android/gradlew || {
+            echo "android/gradlew is missing. Commit the React Native android/ project."
+            exit 1
+          }
 
       - name: Build release APK
         working-directory: android
@@ -131,7 +127,7 @@ jobs:
           set -euo pipefail
 
           if [ -z "$KS_B64" ]; then
-            echo "Release keystore not configured; keeping the APK signed by the build."
+            echo "No release keystore configured; keeping the APK signed by the Gradle build."
             exit 0
           fi
 
@@ -166,7 +162,6 @@ jobs:
       EXPO_PUBLIC_API_BASE_URL: ${{ inputs.api_base_url }}
       EXPO_PUBLIC_SIP_WS_URL: ${{ inputs.sip_ws_url }}
       EXPO_PUBLIC_TENANT_SLUG: ${{ inputs.tenant_slug }}
-      EXPO_NO_TELEMETRY: '1'
       CI: 'true'
 
     steps:
@@ -178,19 +173,18 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install dependencies
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Verify native iOS project
         run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install --no-audit --no-fund
-          fi
+          test -f ios/Podfile || {
+            echo "ios/Podfile is missing. Commit the React Native ios/ project."
+            exit 1
+          }
 
-      # Removed the failing fix-callkeep.js command because that file is not
-      # present at node_modules/@caro/react-native-calling/scripts/fix-callkeep.js.
-
-      - name: Generate iOS project
-        run: npx expo prebuild --platform ios
+      - name: Install CocoaPods dependencies
+        run: pod install --project-directory=ios
 
       - name: Find workspace and scheme
         id: xc
@@ -310,7 +304,18 @@ jobs:
             IDENTITY="Apple Distribution"
           fi
 
-          BUNDLE_ID=$(node -p "require('./app.json').expo.ios.bundleIdentifier")
+          BUNDLE_ID=$(xcodebuild \
+            -workspace "${{ steps.xc.outputs.workspace }}" \
+            -scheme "${{ steps.xc.outputs.scheme }}" \
+            -configuration Release \
+            -sdk iphoneos \
+            -showBuildSettings 2>/dev/null \
+            | awk -F ' = ' '/^[[:space:]]*PRODUCT_BUNDLE_IDENTIFIER = / { print $2; exit }')
+
+          if [ -z "$BUNDLE_ID" ]; then
+            echo "Could not determine PRODUCT_BUNDLE_IDENTIFIER from Xcode build settings."
+            exit 1
+          fi
 
           xcodebuild \
             -workspace "${{ steps.xc.outputs.workspace }}" \
