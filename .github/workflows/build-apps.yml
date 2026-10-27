@@ -1,284 +1,171 @@
-# Build the demo apps on GitHub runners: Android APK and/or iOS app.
-#
-# Actions > "Build apps" > Run workflow, then pick:
-#   app       patient / provider / both
-#   platform  android / ios / both
-#   URLs      baked into the app at build time (EXPO_PUBLIC_* variables)
-#
-# Everything runs on GitHub's runners. No Expo account, no EAS, nothing is uploaded
-# to Expo: `expo prebuild` only generates the native android/ and ios/ projects from
-# app.json + plugins, then Gradle (Android SDK) or Xcode builds them.
-# Results are attached to the run as artifacts (Summary page > Artifacts).
-#
-# Signing (optional repository secrets):
-#   Android: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
-#            ANDROID_KEY_PASSWORD. Without them the APK is signed with the project's
-#            debug key: fine to install for testing, not for the Play Store.
-#   iOS:     IOS_CERT_P12_BASE64, IOS_CERT_PASSWORD, IOS_PROFILE_BASE64 (ad-hoc or
-#            development profile), IOS_TEAM_ID. Without them the workflow builds a
-#            simulator app only (a real iPhone needs Apple signing).
-#
-# The "Run workflow" button only appears once this file is on the default branch;
-# you can then pick any branch to build.
 
-name: Build apps
+ios:
+  needs: plan
+  if: needs.plan.outputs.ios == 'true'
+  name: ios (main-app)
+  runs-on: macos-15
+  timeout-minutes: 90
 
-on:
-  workflow_dispatch:
-    inputs:
-      app:
-        description: App to build
-        type: choice
-        options: [both, patient, provider]
-        default: both
-      platform:
-        description: Platform
-        type: choice
-        options: [android, ios, both]
-        default: android
-      api_base_url:
-        description: EXPO_PUBLIC_API_BASE_URL (backend, no trailing slash)
-        type: string
-        default: http://192.168.101.92:8004
-      sip_ws_url:
-        description: EXPO_PUBLIC_SIP_WS_URL (optional SIP WebSocket override)
-        type: string
-        default: ws://10.10.95.25:8088/ws
-      tenant_slug:
-        description: EXPO_PUBLIC_TENANT_SLUG (optional)
-        type: string
-        default: ''
+  defaults:
+    run:
+      working-directory: .    
 
-concurrency:
-  group: build-apps-${{ github.ref }}
-  cancel-in-progress: false
+  steps:
+    - uses: actions/checkout@v4
 
-jobs:
-  plan:
-    runs-on: ubuntu-latest
-    outputs:
-      apps: ${{ steps.plan.outputs.apps }}
-      android: ${{ steps.plan.outputs.android }}
-      ios: ${{ steps.plan.outputs.ios }}
-    steps:
-      - id: plan
-        env:
-          APP: ${{ inputs.app }}
-          PLATFORM: ${{ inputs.platform }}
-        run: |
-          case "$APP" in
-            both) echo 'apps=["patient","provider"]' >> "$GITHUB_OUTPUT" ;;
-            *)    echo "apps=[\"$APP\"]" >> "$GITHUB_OUTPUT" ;;
-          esac
-          [[ "$PLATFORM" == android || "$PLATFORM" == both ]] && echo android=true >> "$GITHUB_OUTPUT" || echo android=false >> "$GITHUB_OUTPUT"
-          [[ "$PLATFORM" == ios || "$PLATFORM" == both ]] && echo ios=true >> "$GITHUB_OUTPUT" || echo ios=false >> "$GITHUB_OUTPUT"
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 24
 
-  android:
-    needs: plan
-    if: needs.plan.outputs.android == 'true'
-    name: android (${{ matrix.app }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        app: ${{ fromJSON(needs.plan.outputs.apps) }}
-    defaults:
-      run:
-        working-directory: ${{ matrix.app }}-app
-    env:
-      EXPO_PUBLIC_API_BASE_URL: ${{ inputs.api_base_url }}
-      EXPO_PUBLIC_SIP_WS_URL: ${{ inputs.sip_ws_url }}
-      EXPO_PUBLIC_TENANT_SLUG: ${{ inputs.tenant_slug }}
-      EXPO_NO_TELEMETRY: '1'
-      CI: 'true'
-    steps:
-      - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: |
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          npm install --no-audit --no-fund
+        fi
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
+    - name: Patch react-native-callkeep for the New Architecture
+      run: node node_modules/@caro/react-native-calling/scripts/fix-callkeep.js
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
+    - name: Generate native iOS project
+      run: npx expo prebuild --platform ios
 
-      - uses: gradle/actions/setup-gradle@v4
+    - name: Find workspace and scheme
+      id: xc
+      run: |
+        ws=$(ls -d ios/*.xcworkspace | head -n1)
+        scheme=$(basename "$ws" .xcworkspace)
+        echo "workspace=$ws" >> "$GITHUB_OUTPUT"
+        echo "scheme=$scheme" >> "$GITHUB_OUTPUT"
+        mkdir -p "$GITHUB_WORKSPACE/out"
 
-      - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+    - name: Check for signing secrets
+      id: sign
+      env:
+        P12: ${{ secrets.IOS_CERT_P12_BASE64 }}
+        PROFILE: ${{ secrets.IOS_PROFILE_BASE64 }}
+        TEAM: ${{ secrets.IOS_TEAM_ID }}
+      run: |
+        if [ -n "$P12" ] && [ -n "$PROFILE" ] && [ -n "$TEAM" ]; then
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "signed=false" >> "$GITHUB_OUTPUT"
+        fi
 
-      # react-native-callkeep 4.3.16 crashes under the New Architecture (always on in
-      # RN 0.86). The CARO SDK's postinstall patches it; npm may skip dependency install
-      # scripts, so run it explicitly (idempotent).
-      - name: Patch react-native-callkeep for the New Architecture
-        run: node node_modules/@caro/react-native-calling/scripts/fix-callkeep.js
+    - name: Build for iOS Simulator
+      if: steps.sign.outputs.signed == 'false'
+      run: |
+        set -o pipefail
+        xcodebuild \
+          -workspace "${{ steps.xc.outputs.workspace }}" \
+          -scheme "${{ steps.xc.outputs.scheme }}" \
+          -configuration Release \
+          -sdk iphonesimulator \
+          -destination 'generic/platform=iOS Simulator' \
+          -derivedDataPath build \
+          CODE_SIGNING_ALLOWED=NO | tail -n 50
 
-      # Generates android/ from app.json + config plugins (no Expo account, offline).
-      # Without --clean an existing android/ (provider app) is updated in place.
-      - name: Generate native Android project
-        run: npx expo prebuild --platform android --no-install
+        app=$(ls -d build/Build/Products/Release-iphonesimulator/*.app | head -n1)
+        (cd "$(dirname "$app")" && \
+          zip -qry "$GITHUB_WORKSPACE/out/cti-main-app-simulator.zip" "$(basename "$app")")
 
-      - name: Build release APK
-        working-directory: ${{ matrix.app }}-app/android
-        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a -Dorg.gradle.jvmargs=-Xmx4g
+    - name: Install signing certificate and profile
+      if: steps.sign.outputs.signed == 'true'
+      env:
+        P12: ${{ secrets.IOS_CERT_P12_BASE64 }}
+        P12_PASS: ${{ secrets.IOS_CERT_PASSWORD }}
+        PROFILE: ${{ secrets.IOS_PROFILE_BASE64 }}
+      run: |
+        kc="$RUNNER_TEMP/build.keychain-db"
+        kcpass=$(openssl rand -hex 16)
 
-      - name: Collect APK
-        id: apk
-        run: |
-          src=$(ls android/app/build/outputs/apk/release/*.apk | head -n1)
-          name="cti-${{ matrix.app }}-${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}.apk"
-          mkdir -p "$GITHUB_WORKSPACE/out"
-          cp "$src" "$GITHUB_WORKSPACE/out/$name"
-          echo "path=$GITHUB_WORKSPACE/out/$name" >> "$GITHUB_OUTPUT"
+        security create-keychain -p "$kcpass" "$kc"
+        security set-keychain-settings -lut 21600 "$kc"
+        security unlock-keychain -p "$kcpass" "$kc"
 
-      - name: Sign with release key (if configured)
-        env:
-          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          if [ -z "$KS_B64" ]; then echo "No release keystore secret: APK stays signed with the debug key"; exit 0; fi
-          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
-          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)
-          "$apksigner" sign --ks "$RUNNER_TEMP/release.keystore" --ks-pass env:KS_PASS \
-            --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASS "${{ steps.apk.outputs.path }}"
-          "$apksigner" verify --print-certs "${{ steps.apk.outputs.path }}" | head -n 3
-          rm -f "$RUNNER_TEMP/release.keystore"
+        echo "$P12" | base64 -d > "$RUNNER_TEMP/cert.p12"
+        security import "$RUNNER_TEMP/cert.p12" \
+          -P "$P12_PASS" -A -t cert -f pkcs12 -k "$kc"
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android-${{ matrix.app }}
-          path: ${{ steps.apk.outputs.path }}
-          retention-days: 14
+        security set-key-partition-list \
+          -S apple-tool:,apple: -k "$kcpass" "$kc"
 
-  ios:
-    needs: plan
-    if: needs.plan.outputs.ios == 'true'
-    name: ios (${{ matrix.app }})
-    runs-on: macos-15
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        app: ${{ fromJSON(needs.plan.outputs.apps) }}
-    defaults:
-      run:
-        working-directory: ${{ matrix.app }}-app
-    env:
-      EXPO_PUBLIC_API_BASE_URL: ${{ inputs.api_base_url }}
-      EXPO_PUBLIC_SIP_WS_URL: ${{ inputs.sip_ws_url }}
-      EXPO_PUBLIC_TENANT_SLUG: ${{ inputs.tenant_slug }}
-      EXPO_NO_TELEMETRY: '1'
-      CI: 'true'
-    steps:
-      - uses: actions/checkout@v4
+        security list-keychains -d user -s "$kc" \
+          $(security list-keychains -d user | tr -d '"')
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
+        mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+        echo "$PROFILE" | base64 -d > "$RUNNER_TEMP/app.mobileprovision"
 
-      - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+        uuid=$(security cms -D -i "$RUNNER_TEMP/app.mobileprovision" \
+          | plutil -extract UUID raw -)
 
-      - name: Patch react-native-callkeep for the New Architecture
-        run: node node_modules/@caro/react-native-calling/scripts/fix-callkeep.js
+        cp "$RUNNER_TEMP/app.mobileprovision" \
+          ~/Library/MobileDevice/Provisioning\ Profiles/"$uuid".mobileprovision
 
-      # Generates ios/ and runs `pod install`.
-      - name: Generate native iOS project
-        run: npx expo prebuild --platform ios
+        echo "PROFILE_UUID=$uuid" >> "$GITHUB_ENV"
+        rm -f "$RUNNER_TEMP/cert.p12"
 
-      - name: Find workspace and scheme
-        id: xc
-        run: |
-          ws=$(ls -d ios/*.xcworkspace | head -n1)
-          scheme=$(basename "$ws" .xcworkspace)
-          echo "workspace=$ws" >> "$GITHUB_OUTPUT"
-          echo "scheme=$scheme" >> "$GITHUB_OUTPUT"
-          mkdir -p "$GITHUB_WORKSPACE/out"
+    - name: Archive and export IPA
+      if: steps.sign.outputs.signed == 'true'
+      env:
+        TEAM: ${{ secrets.IOS_TEAM_ID }}
+      run: |
+        set -o pipefail
 
-      - name: Check for signing secrets
-        id: sign
-        env:
-          P12: ${{ secrets.IOS_CERT_P12_BASE64 }}
-          PROFILE: ${{ secrets.IOS_PROFILE_BASE64 }}
-          TEAM: ${{ secrets.IOS_TEAM_ID }}
-        run: |
-          if [ -n "$P12" ] && [ -n "$PROFILE" ] && [ -n "$TEAM" ]; then echo signed=true >> "$GITHUB_OUTPUT"; else echo signed=false >> "$GITHUB_OUTPUT"; fi
+        profile_path=~/Library/MobileDevice/Provisioning\ Profiles/"$PROFILE_UUID".mobileprovision
+        plist=$(security cms -D -i "$profile_path")
 
-      # --- No Apple signing: simulator build (runs in the iOS Simulator only) ---
-      - name: Build for iOS Simulator
-        if: steps.sign.outputs.signed == 'false'
-        run: |
-          xcodebuild -workspace "${{ steps.xc.outputs.workspace }}" -scheme "${{ steps.xc.outputs.scheme }}" \
-            -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO | tail -n 50
-          app=$(ls -d build/Build/Products/Release-iphonesimulator/*.app | head -n1)
-          (cd "$(dirname "$app")" && zip -qry "$GITHUB_WORKSPACE/out/cti-${{ matrix.app }}-simulator.zip" "$(basename "$app")")
+        if [ "$(echo "$plist" | plutil -extract Entitlements.get-task-allow raw - 2>/dev/null)" = "true" ]; then
+          method=debugging
+          identity="Apple Development"
+        elif echo "$plist" | plutil -extract ProvisionedDevices raw - >/dev/null 2>&1; then
+          method=release-testing
+          identity="Apple Distribution"
+        else
+          method=app-store-connect
+          identity="Apple Distribution"
+        fi
 
-      # --- Apple signing configured: installable IPA ---
-      - name: Install signing certificate and profile
-        if: steps.sign.outputs.signed == 'true'
-        env:
-          P12: ${{ secrets.IOS_CERT_P12_BASE64 }}
-          P12_PASS: ${{ secrets.IOS_CERT_PASSWORD }}
-          PROFILE: ${{ secrets.IOS_PROFILE_BASE64 }}
-        run: |
-          kc="$RUNNER_TEMP/build.keychain-db"; kcpass=$(openssl rand -hex 16)
-          security create-keychain -p "$kcpass" "$kc"
-          security set-keychain-settings -lut 21600 "$kc"
-          security unlock-keychain -p "$kcpass" "$kc"
-          echo "$P12" | base64 -d > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASS" -A -t cert -f pkcs12 -k "$kc"
-          security set-key-partition-list -S apple-tool:,apple: -k "$kcpass" "$kc"
-          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "$PROFILE" | base64 -d > "$RUNNER_TEMP/app.mobileprovision"
-          uuid=$(security cms -D -i "$RUNNER_TEMP/app.mobileprovision" | plutil -extract UUID raw -)
-          cp "$RUNNER_TEMP/app.mobileprovision" ~/Library/MobileDevice/Provisioning\ Profiles/"$uuid".mobileprovision
-          echo "PROFILE_UUID=$uuid" >> "$GITHUB_ENV"
-          rm -f "$RUNNER_TEMP/cert.p12"
+        echo "Export method: $method"
 
-      - name: Archive and export IPA
-        if: steps.sign.outputs.signed == 'true'
-        env:
-          TEAM: ${{ secrets.IOS_TEAM_ID }}
-        run: |
-          # Development profile (get-task-allow) -> debugging; ad-hoc (has devices) -> release-testing.
-          plist=$(security cms -D -i ~/Library/MobileDevice/Provisioning\ Profiles/"$PROFILE_UUID".mobileprovision)
-          if [ "$(echo "$plist" | plutil -extract Entitlements.get-task-allow raw - 2>/dev/null)" = "true" ]; then
-            method=debugging; identity="Apple Development"
-          elif echo "$plist" | plutil -extract ProvisionedDevices raw - >/dev/null 2>&1; then
-            method=release-testing; identity="Apple Distribution"
-          else
-            method=app-store-connect; identity="Apple Distribution"
-          fi
-          echo "Export method: $method"
-          bundle_id=$(node -p "require('./app.json').expo.ios.bundleIdentifier")
-          xcodebuild -workspace "${{ steps.xc.outputs.workspace }}" -scheme "${{ steps.xc.outputs.scheme }}" \
-            -configuration Release -sdk iphoneos -archivePath build/app.xcarchive archive \
-            DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
-            CODE_SIGN_IDENTITY="$identity" | tail -n 50
-          cat > build/ExportOptions.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>method</key><string>${method}</string>
-            <key>teamID</key><string>${TEAM}</string>
-            <key>signingStyle</key><string>manual</string>
-            <key>provisioningProfiles</key><dict><key>${bundle_id}</key><string>${PROFILE_UUID}</string></dict>
-          </dict></plist>
-          EOF
-          xcodebuild -exportArchive -archivePath build/app.xcarchive -exportPath build/ipa \
-            -exportOptionsPlist build/ExportOptions.plist | tail -n 20
-          cp build/ipa/*.ipa "$GITHUB_WORKSPACE/out/cti-${{ matrix.app }}-${GITHUB_SHA::7}.ipa"
+        bundle_id=$(node -p "require('./app.json').expo.ios.bundleIdentifier")
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ios-${{ matrix.app }}
-          path: ${{ github.workspace }}/out/*
-          retention-days: 14
+        xcodebuild \
+          -workspace "${{ steps.xc.outputs.workspace }}" \
+          -scheme "${{ steps.xc.outputs.scheme }}" \
+          -configuration Release \
+          -sdk iphoneos \
+          -archivePath build/app.xcarchive \
+          archive \
+          DEVELOPMENT_TEAM="$TEAM" \
+          CODE_SIGN_STYLE=Manual \
+          PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
+          CODE_SIGN_IDENTITY="$identity" | tail -n 50
+
+        cat > build/ExportOptions.plist <<EOF
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict>
+          <key>method</key><string>${method}</string>
+          <key>teamID</key><string>${TEAM}</string>
+          <key>signingStyle</key><string>manual</string>
+          <key>provisioningProfiles</key><dict>
+            <key>${bundle_id}</key><string>${PROFILE_UUID}</string>
+          </dict>
+        </dict></plist>
+        EOF
+
+        xcodebuild \
+          -exportArchive \
+          -archivePath build/app.xcarchive \
+          -exportPath build/ipa \
+          -exportOptionsPlist build/ExportOptions.plist | tail -n 20
+
+        cp build/ipa/*.ipa "$GITHUB_WORKSPACE/out/cti-main-app-${GITHUB_SHA::7}.ipa"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: ios-main-app
+        path: out/*
+        retention-days: 14
