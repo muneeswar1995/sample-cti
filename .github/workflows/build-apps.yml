@@ -1,3 +1,21 @@
+# Build the Main App on GitHub runners: Android APK and/or iOS app.
+#
+# Save as: .github/workflows/build-main-app.yml
+# Assumption: package.json and app.json are in the repository root.
+#
+# Run from Actions > Build Main App > Run workflow.
+# Choose android, ios, or both.
+#
+# Optional Android signing secrets:
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+#   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+#
+# Optional iOS signing secrets:
+#   IOS_CERT_P12_BASE64, IOS_CERT_PASSWORD,
+#   IOS_PROFILE_BASE64, IOS_TEAM_ID
+#
+# Without iOS signing secrets, the workflow builds an iOS Simulator app ZIP,
+# not an installable IPA for a physical iPhone.
 
 name: Build Main App
 
@@ -13,7 +31,21 @@ on:
           - ios
         default: both
         required: true
-
+      api_base_url:
+        description: Backend API URL (no trailing slash)
+        type: string
+        default: http://192.168.101.92:8004
+        required: true
+      sip_ws_url:
+        description: SIP WebSocket URL
+        type: string
+        default: ws://10.10.95.25:8088/ws
+        required: false
+      tenant_slug:
+        description: Tenant slug
+        type: string
+        default: ''
+        required: false
 
 concurrency:
   group: build-main-app-${{ github.ref }}
@@ -25,6 +57,12 @@ jobs:
     name: Android - Main App
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      EXPO_PUBLIC_API_BASE_URL: ${{ inputs.api_base_url }}
+      EXPO_PUBLIC_SIP_WS_URL: ${{ inputs.sip_ws_url }}
+      EXPO_PUBLIC_TENANT_SLUG: ${{ inputs.tenant_slug }}
+      EXPO_NO_TELEMETRY: '1'
+      CI: 'true'
 
     steps:
       - name: Checkout repository
@@ -52,8 +90,9 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
-      - name: Patch react-native-callkeep
-        run: node node_modules/@caro/react-native-calling/scripts/fix-callkeep.js
+      # The optional @caro/react-native-calling patch step was removed because
+      # the script is missing from the installed package in the current build.
+      # Re-add only after confirming the script exists and is required.
 
       - name: Generate Android project
         run: npx expo prebuild --platform android --no-install
@@ -72,16 +111,16 @@ jobs:
             -maxdepth 1 -name '*.apk' -print -quit)
 
           if [ -z "$APK" ]; then
-            echo "Release APK not found"
+            echo "Release APK not found."
             exit 1
           fi
 
           mkdir -p "$GITHUB_WORKSPACE/out"
-          NAME="main-app-${GITHUB_SHA::7}.apk"
+          NAME="main-app-${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}.apk"
           cp "$APK" "$GITHUB_WORKSPACE/out/$NAME"
           echo "path=$GITHUB_WORKSPACE/out/$NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Sign APK with release keystore
+      - name: Sign APK with release keystore (if configured)
         env:
           KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -92,12 +131,11 @@ jobs:
           set -euo pipefail
 
           if [ -z "$KS_B64" ]; then
-            echo "Release keystore not configured; keeping Gradle-built APK."
+            echo "Release keystore not configured; keeping the APK signed by the build."
             exit 0
           fi
 
           echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
-
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" \
             -name apksigner -type f | sort -V | tail -n1)
 
@@ -124,6 +162,12 @@ jobs:
     name: iOS - Main App
     runs-on: macos-15
     timeout-minutes: 90
+    env:
+      EXPO_PUBLIC_API_BASE_URL: ${{ inputs.api_base_url }}
+      EXPO_PUBLIC_SIP_WS_URL: ${{ inputs.sip_ws_url }}
+      EXPO_PUBLIC_TENANT_SLUG: ${{ inputs.tenant_slug }}
+      EXPO_NO_TELEMETRY: '1'
+      CI: 'true'
 
     steps:
       - name: Checkout repository
@@ -142,8 +186,8 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
-      - name: Patch react-native-callkeep
-        run: node node_modules/@caro/react-native-calling/scripts/fix-callkeep.js
+      # Removed the failing fix-callkeep.js command because that file is not
+      # present at node_modules/@caro/react-native-calling/scripts/fix-callkeep.js.
 
       - name: Generate iOS project
         run: npx expo prebuild --platform ios
@@ -155,17 +199,14 @@ jobs:
           set -euo pipefail
 
           WS=$(find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)
-
           if [ -z "$WS" ]; then
-            echo "No Xcode workspace found under ios/"
+            echo "No Xcode workspace found under ios/."
             exit 1
           fi
 
           SCHEME=$(basename "$WS" .xcworkspace)
-
           echo "workspace=$WS" >> "$GITHUB_OUTPUT"
           echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
-
           mkdir -p "$GITHUB_WORKSPACE/out"
 
       - name: Check iOS signing configuration
@@ -187,8 +228,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           set -o pipefail
+
           xcodebuild \
             -workspace "${{ steps.xc.outputs.workspace }}" \
             -scheme "${{ steps.xc.outputs.scheme }}" \
@@ -202,7 +243,7 @@ jobs:
             -maxdepth 1 -name '*.app' -print -quit)
 
           if [ -z "$APP" ]; then
-            echo "Simulator app not found"
+            echo "Simulator .app was not found."
             exit 1
           fi
 
@@ -228,30 +269,22 @@ jobs:
           security unlock-keychain -p "$KCPASS" "$KC"
 
           echo "$P12" | base64 -d > "$RUNNER_TEMP/cert.p12"
-
           security import "$RUNNER_TEMP/cert.p12" \
             -P "$P12_PASS" -A -t cert -f pkcs12 -k "$KC"
-
           security set-key-partition-list \
             -S apple-tool:,apple: -k "$KCPASS" "$KC"
-
           security list-keychains -d user -s "$KC" \
             $(security list-keychains -d user | tr -d '"')
 
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$PROFILE" | base64 -d > "$RUNNER_TEMP/app.mobileprovision"
 
-          echo "$PROFILE" | base64 -d \
-            > "$RUNNER_TEMP/app.mobileprovision"
-
-          UUID=$(security cms -D \
-            -i "$RUNNER_TEMP/app.mobileprovision" \
+          UUID=$(security cms -D -i "$RUNNER_TEMP/app.mobileprovision" \
             | plutil -extract UUID raw -)
 
           cp "$RUNNER_TEMP/app.mobileprovision" \
             "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
-
           echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
-
           rm -f "$RUNNER_TEMP/cert.p12"
 
       - name: Archive and export IPA
@@ -261,9 +294,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          set -o pipefail
 
           PROFILE_PATH="$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
-
           PLIST=$(security cms -D -i "$PROFILE_PATH")
 
           if [ "$(echo "$PLIST" | plutil -extract Entitlements.get-task-allow raw - 2>/dev/null || true)" = "true" ]; then
@@ -318,9 +351,8 @@ jobs:
             -exportOptionsPlist build/ExportOptions.plist | tail -n 30
 
           IPA=$(find build/ipa -maxdepth 1 -name '*.ipa' -print -quit)
-
           if [ -z "$IPA" ]; then
-            echo "Exported IPA not found"
+            echo "Exported IPA was not found."
             exit 1
           fi
 
