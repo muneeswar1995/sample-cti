@@ -74,9 +74,14 @@ jobs:
             exit 1
           }
 
-      - name: Build release APK
+      - name: Build Release APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a -Dorg.gradle.jvmargs=-Xmx4g
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease \
+            --no-daemon \
+            -PreactNativeArchitectures=arm64-v8a \
+            -Dorg.gradle.jvmargs=-Xmx4g
 
       - name: Collect APK
         id: apk
