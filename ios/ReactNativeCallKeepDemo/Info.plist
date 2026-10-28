@@ -46,11 +46,6 @@
         <true/>
     </dict>
 
-    <!-- Push notification background processing -->
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>remote-notification</string>
-    </array>
 
     <!-- Notification permission prompt description is not required on iOS -->
 

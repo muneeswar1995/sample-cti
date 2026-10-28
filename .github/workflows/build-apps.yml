@@ -159,6 +159,20 @@ jobs:
             exit 1
           }
 
+      - name: Diagnose iOS plist parsing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Validating app plist files before CocoaPods..."
+          while IFS= read -r -d '' file; do
+            echo "Checking: $file"
+            plutil -lint "$file"
+          done < <(find ios -name "Info.plist" -not -path "*/Pods/*" -print0)
+
+          echo "React Native new architecture plist-processing code:"
+          sed -n '155,195p' node_modules/react-native/scripts/cocoapods/new_architecture.rb
+
       - name: Install CocoaPods dependencies
         run: pod install --project-directory=ios
 
