@@ -35,7 +35,6 @@
     <key>LSRequiresIPhoneOS</key>
     <true/>
 
-    <!-- App Transport Security -->
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key>
@@ -44,21 +43,15 @@
         <true/>
     </dict>
 
-
-    <!-- Notification permission prompt description is not required on iOS -->
-
-    <!-- Camera and microphone: include if CTI calls use them -->
     <key>NSCameraUsageDescription</key>
     <string>Camera access is required for video calls.</string>
 
     <key>NSMicrophoneUsageDescription</key>
     <string>Microphone access is required to make and receive calls.</string>
 
-    <!-- Launch screen -->
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
 
-    <!-- Supported orientations -->
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
