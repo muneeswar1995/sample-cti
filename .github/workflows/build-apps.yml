@@ -363,3 +363,53 @@ jobs:
           path: out/*
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload IPA to App Store Connect
+        if: steps.sign.outputs.signed == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Create the directory expected by Apple's upload tools.
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEY_DIR"
+
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+
+          # Decode the Base64-encoded .p8 private key.
+          printf '%s' "$ASC_KEY_P8_BASE64" \
+            | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+
+          # Validate that the decoded key is not empty.
+          if [ ! -s "$KEY_PATH" ]; then
+            echo "Error: Decoded App Store Connect key is empty."
+            exit 1
+          fi
+
+          # Locate the exported IPA.
+          IPA=$(find build/ipa -maxdepth 1 -type f \
+            -name '*.ipa' -print -quit)
+
+          if [ -z "$IPA" ]; then
+            echo "Error: Exported IPA not found."
+            exit 1
+          fi
+
+          echo "Uploading IPA to App Store Connect..."
+
+          # Upload the signed IPA.
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA" \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
+          echo "IPA upload command completed successfully."
+
+          # Remove the temporary private key.
+          rm -f "$KEY_PATH"
