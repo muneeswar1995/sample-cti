@@ -356,14 +356,6 @@ jobs:
 
           cp "$IPA" "$GITHUB_WORKSPACE/out/main-app-${GITHUB_SHA::7}.ipa"
 
-      - name: Upload iOS build
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-main-app
-          path: out/*
-          if-no-files-found: error
-          retention-days: 14
-
       - name: Upload IPA to App Store Connect
         if: steps.sign.outputs.signed == 'true'
         env:
