@@ -160,7 +160,7 @@ jobs:
           }
 
       - name: Install CocoaPods dependencies
-        run: pod install --project-directory=ios --verbose
+        run: pod install --project-directory=ios
 
       - name: Find workspace and scheme
         id: xc
@@ -257,41 +257,16 @@ jobs:
           echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
           rm -f "$RUNNER_TEMP/cert.p12"
 
-      - name: Archive and export IPA
+      - name: Archive iOS app
         if: steps.sign.outputs.signed == 'true'
         env:
           TEAM: ${{ secrets.IOS_TEAM_ID }}
         shell: bash
         run: |
-          set -euo pipefail
           set -o pipefail
 
-          PROFILE_PATH="$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
-          PLIST=$(security cms -D -i "$PROFILE_PATH")
-
-          if [ "$(echo "$PLIST" | plutil -extract Entitlements.get-task-allow raw - 2>/dev/null || true)" = "true" ]; then
-            METHOD=debugging
-            IDENTITY="Apple Development"
-          elif echo "$PLIST" | plutil -extract ProvisionedDevices raw - >/dev/null 2>&1; then
-            METHOD=release-testing
-            IDENTITY="Apple Distribution"
-          else
-            METHOD=app-store-connect
-            IDENTITY="Apple Distribution"
-          fi
-
-          BUNDLE_ID=$(xcodebuild \
-            -workspace "${{ steps.xc.outputs.workspace }}" \
-            -scheme "${{ steps.xc.outputs.scheme }}" \
-            -configuration Release \
-            -sdk iphoneos \
-            -showBuildSettings 2>/dev/null \
-            | awk -F ' = ' '/^[[:space:]]*PRODUCT_BUNDLE_IDENTIFIER = / { print $2; exit }')
-
-          if [ -z "$BUNDLE_ID" ]; then
-            echo "Could not determine PRODUCT_BUNDLE_IDENTIFIER from Xcode build settings."
-            exit 1
-          fi
+          mkdir -p build
+          set +e
 
           xcodebuild \
             -workspace "${{ steps.xc.outputs.workspace }}" \
@@ -303,33 +278,20 @@ jobs:
             DEVELOPMENT_TEAM="$TEAM" \
             CODE_SIGN_STYLE=Manual \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
-            CODE_SIGN_IDENTITY="$IDENTITY" | tail -n 50
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            2>&1 | tee build/archive.log
 
-          cat > build/ExportOptions.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>${METHOD}</string>
-            <key>teamID</key>
-            <string>${TEAM}</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${BUNDLE_ID}</key>
-              <string>${PROFILE_UUID}</string>
-            </dict>
-          </dict>
-          </plist>
-          EOF
+          BUILD_STATUS=${PIPESTATUS[0]}
+          set -e
 
-          xcodebuild \
-            -exportArchive \
-            -archivePath build/app.xcarchive \
-            -exportPath build/ipa \
-            -exportOptionsPlist build/ExportOptions.plist | tail -n 30
+          if [ "$BUILD_STATUS" -ne 0 ]; then
+            echo "Archive failed. Relevant errors:"
+            grep -n -B 5 -A 8 -E \
+              'error:|fatal error:|CodeSign failed|Provisioning profile|No profiles for|Undefined symbols|duplicate symbol' \
+              build/archive.log || true
+
+            exit "$BUILD_STATUS"
+          fi
 
           IPA=$(find build/ipa -maxdepth 1 -name '*.ipa' -print -quit)
           if [ -z "$IPA" ]; then
