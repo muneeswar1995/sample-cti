@@ -9,9 +9,9 @@
 # Run: Actions > Build Main App > Run workflow
 # Choose android, ios, or both.
 #
-# Optional Android signing secrets:
-#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
-#   ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+# Android release signing GitHub Actions secrets:
+#   ANDROID_KEYSTORE_BASE64 (base64-encoded .jks/.keystore file),
+#   ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
 #
 # Optional iOS signing secrets:
 #   IOS_CERT_P12_BASE64, IOS_CERT_PASSWORD,
@@ -97,7 +97,7 @@ jobs:
           cp "$APK" "$GITHUB_WORKSPACE/out/$NAME"
           echo "path=$GITHUB_WORKSPACE/out/$NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Sign APK with release keystore (if configured)
+      - name: Sign APK with JKS release keystore
         env:
           KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -107,24 +107,36 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "$KS_B64" ]; then
-            echo "No release keystore configured; keeping the APK signed by the Gradle build."
-            exit 0
+          if [ -z "$KS_B64" ] || [ -z "$KS_PASS" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASS" ]; then
+            echo "Missing Android signing secrets. Configure ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD in GitHub Actions secrets."
+            exit 1
           fi
 
-          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
-          APKSIGNER=$(find "$ANDROID_HOME/build-tools" \
-            -name apksigner -type f | sort -V | tail -n1)
+          KEYSTORE="$RUNNER_TEMP/release.jks"
+          trap 'rm -f "$KEYSTORE"' EXIT
+
+          echo "$KS_B64" | base64 --decode > "$KEYSTORE"
+          test -s "$KEYSTORE"
+
+          echo "Validating JKS keystore and alias..."
+          keytool -list -keystore "$KEYSTORE" -storepass "$KS_PASS" -alias "$KEY_ALIAS" >/dev/null
+
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n1)
+          if [ -z "$APKSIGNER" ]; then
+            echo "Android apksigner was not found."
+            exit 1
+          fi
 
           "$APKSIGNER" sign \
-            --ks "$RUNNER_TEMP/release.keystore" \
+            --ks "$KEYSTORE" \
+            --ks-type JKS \
             --ks-pass env:KS_PASS \
             --ks-key-alias "$KEY_ALIAS" \
             --key-pass env:KEY_PASS \
             "${{ steps.apk.outputs.path }}"
 
-          "$APKSIGNER" verify "${{ steps.apk.outputs.path }}"
-          rm -f "$RUNNER_TEMP/release.keystore"
+          "$APKSIGNER" verify --verbose "${{ steps.apk.outputs.path }}"
+          echo "APK signed and verified successfully."
 
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
