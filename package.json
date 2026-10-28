@@ -11,9 +11,6 @@
   },
   "dependencies": {
     "@notifee/react-native": "^9.1.8",
-    "@react-native-async-storage/async-storage": "^3.1.1",
-    "@react-native-firebase/app": "^26.4.0",
-    "@react-native-firebase/messaging": "^26.4.0",
     "@react-native-vector-icons/ionicons": "^13.1.4",
     "@react-native/gradle-plugin": "0.81.4",
     "@react-native/new-app-screen": "0.81.4",

@@ -33,21 +33,6 @@ on:
           - ios
         default: both
         required: true
-      api_base_url:
-        description: Backend API URL (no trailing slash)
-        type: string
-        default: http://192.168.101.92:8004
-        required: true
-      sip_ws_url:
-        description: SIP WebSocket URL
-        type: string
-        default: ws://10.10.95.25:8088/ws
-        required: false
-      tenant_slug:
-        description: Tenant slug
-        type: string
-        default: ''
-        required: false
 
 concurrency:
   group: build-main-app-${{ github.ref }}
@@ -59,11 +44,7 @@ jobs:
     name: Android - Main App
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      EXPO_PUBLIC_API_BASE_URL: ${{ inputs.api_base_url }}
-      EXPO_PUBLIC_SIP_WS_URL: ${{ inputs.sip_ws_url }}
-      EXPO_PUBLIC_TENANT_SLUG: ${{ inputs.tenant_slug }}
-      CI: 'true'
+
 
     steps:
       - name: Checkout repository
@@ -158,12 +139,7 @@ jobs:
     name: iOS - Main App
     runs-on: macos-15
     timeout-minutes: 90
-    env:
-      EXPO_PUBLIC_API_BASE_URL: ${{ inputs.api_base_url }}
-      EXPO_PUBLIC_SIP_WS_URL: ${{ inputs.sip_ws_url }}
-      EXPO_PUBLIC_TENANT_SLUG: ${{ inputs.tenant_slug }}
-      CI: 'true'
-
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
