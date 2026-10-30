@@ -1,8 +1,7 @@
 # Build the bare React Native Main App (AHS CTI) on GitHub Actions.
 #
 # Save as: .github/workflows/build-main-app.yml
-# App source and native projects are under ahs-cs-management/cs-mobile-app.
-# This workflow file should be stored in the repository root at .github/workflows/build-main-app.yml.
+# Assumes package.json, package-lock.json, android/, and ios/ are in repository root.
 #
 # This is a React Native CLI project, not an Expo project. It does NOT run
 # `expo prebuild`; native Android/iOS projects must already exist in the repo.
@@ -54,9 +53,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ahs-cs-management/cs-mobile-app/package-lock.json
+          node-version: 24
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -68,24 +65,17 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Install JavaScript dependencies
-        working-directory: ahs-cs-management/cs-mobile-app
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci --legacy-peer-deps --no-audit --no-fund
-          else
-            echo "package-lock.json not found. Running npm install."
-            npm install --legacy-peer-deps --no-audit --no-fund
-          fi
+        run: npm ci
 
       - name: Verify native Android project
         run: |
-          test -f ahs-cs-management/cs-mobile-app/android/gradlew || {
-            echo "ahs-cs-management/cs-mobile-app/android/gradlew is missing. Commit the React Native Android project."
+          test -f android/gradlew || {
+            echo "android/gradlew is missing. Commit the React Native android/ project."
             exit 1
           }
 
       - name: Build Release APK
-        working-directory: ahs-cs-management/cs-mobile-app/android
+        working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease \
@@ -99,7 +89,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          APK=$(find ahs-cs-management/cs-mobile-app/android/app/build/outputs/apk/release \
+          APK=$(find android/app/build/outputs/apk/release \
             -maxdepth 1 -name '*.apk' -print -quit)
 
           if [ -z "$APK" ]; then
@@ -185,23 +175,20 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ahs-cs-management/cs-mobile-app/package-lock.json
+          node-version: 24
 
       - name: Install JavaScript dependencies
-        working-directory: ahs-cs-management/cs-mobile-app
-        run: npm ci --no-audit --no-fund
+        run: npm ci
 
       - name: Verify native iOS project
         run: |
-          test -f ahs-cs-management/cs-mobile-app/ios/Podfile || {
-            echo "ahs-cs-management/cs-mobile-app/ios/Podfile is missing. Commit the React Native iOS project."
+          test -f ios/Podfile || {
+            echo "ios/Podfile is missing. Commit the React Native ios/ project."
             exit 1
           }
 
       - name: Install CocoaPods dependencies
-        run: pod install --project-directory=ahs-cs-management/cs-mobile-app/ios
+        run: pod install --project-directory=ios
 
       - name: Find workspace and scheme
         id: xc
@@ -209,9 +196,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          WS=$(find ahs-cs-management/cs-mobile-app/ios -maxdepth 1 -name '*.xcworkspace' -print -quit)
+          WS=$(find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)
           if [ -z "$WS" ]; then
-            echo "No Xcode workspace found under ahs-cs-management/cs-mobile-app/ios/."
+            echo "No Xcode workspace found under ios/."
             exit 1
           fi
 
