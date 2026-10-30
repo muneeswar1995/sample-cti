@@ -1,26 +1,37 @@
+import { RequestProvider } from '@react-solutions/request';
+import React, { useEffect } from 'react';
+import { StatusBar, useColorScheme } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import React, {useEffect} from 'react';
-import {StatusBar, View} from 'react-native';
+import { ToastHost } from '@/components/Toast';
+import ThemeProvider from '@/context/ThemeProvider';
+import { requestInstance } from '@/services/Request';
+import { requestLocationPermission } from '@/utils/location';
 
-import {CTIProvider, useCTI} from './src/cti/CTIProvider';
-import {PersistentCTIWebView} from './src/cti/PersistentCTIWebView';
-import {AppNavigator} from './src/navigation/AppNavigator';
+import { AuthProvider } from './app/context';
+import Router from './app/screens/routes';
 
+function App() {
+  const isDarkMode = useColorScheme() === 'dark';
 
-export default function App() {
+  useEffect(() => {
+    // Request location permissions as soon as the app launches
+    requestLocationPermission();
+  }, []);
+
   return (
-    <CTIProvider>
-      <StatusBar
-        barStyle="dark-content"
-        backgroundColor="#ffffff"
-      />
-
-      <View style={{flex: 1}}>
-        <AppNavigator />
-
-        {/* Keep the CTI WebView mounted for the lifetime of the app. */}
-        <PersistentCTIWebView />
-      </View>
-    </CTIProvider>
+    <SafeAreaProvider>
+      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+      <RequestProvider client={requestInstance}>
+        <ThemeProvider>
+          <AuthProvider>
+              <Router />
+              <ToastHost />
+          </AuthProvider>
+        </ThemeProvider>
+      </RequestProvider>
+    </SafeAreaProvider>
   );
 }
+
+export default App;

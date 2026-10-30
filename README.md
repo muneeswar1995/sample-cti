@@ -95,3 +95,57 @@ To learn more about React Native, take a look at the following resources:
 - [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
 - [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
 - [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+
+## 📦 Building & Releasing the Android APK
+
+### 1. Build APK Locally via Bash Script
+
+You can build the Release APK locally using the provided bash script:
+
+```bash
+# Navigate to mobile app directory
+cd cs-mobile-app
+
+# Run the build script
+./build-release.sh
+
+# Or clean build
+./build-release.sh --clean
+```
+
+Alternatively, from the `android` folder:
+```bash
+cd android
+./gradlew assembleRelease
+```
+
+**Output APK Location**:
+```
+cs-mobile-app/android/app/build/outputs/apk/release/app-release.apk
+```
+
+---
+
+### 2. Automated GitHub Release on Tag
+
+When you create and push a Git tag starting with `v*` (e.g. `v1.0.0`), GitHub Actions will automatically:
+1. Setup Node 20, Java 17, and Android SDK.
+2. Build the Release APK (`./gradlew assembleRelease`).
+3. Create a **GitHub Release** and upload `cs-mobile-app-v1.0.0.apk`.
+
+#### How to Trigger a Release:
+
+**Option A — Using the helper script**:
+```bash
+cd cs-mobile-app
+./release-tag.sh v1.0.0 "Release version 1.0.0"
+```
+
+**Option B — Using Git directly**:
+```bash
+git tag -a v1.0.0 -m "Release version 1.0.0"
+git push origin v1.0.0
+```
+
+**Option C — Manual trigger in GitHub Actions**:
+Go to **GitHub** → **Actions** → **Mobile App Build & Release** → **Run workflow**.
