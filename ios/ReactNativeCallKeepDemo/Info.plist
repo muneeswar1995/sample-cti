@@ -27,7 +27,7 @@
     <string>0.0.1</string>
 
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>2</string>
 
     <key>CFBundleSignature</key>
     <string>????</string>
@@ -58,5 +58,12 @@
 
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
+
+    <!-- Location Permissions -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>AHS CS Management needs access to your location to capture your current GPS coordinates and provide accurate field visit information.</string>
+
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>AHS CS Management needs location access to support location-based field operations.</string>
 </dict>
 </plist>
