@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-               BuildableName = "ReactNativeCallKeepDemo.app"
-               BlueprintName = "ReactNativeCallKeepDemo"
-               ReferencedContainer = "container:ReactNativeCallKeepDemo.xcodeproj">
+               BuildableName = "cs_managment.app"
+               BlueprintName = "cs_managment"
+               ReferencedContainer = "container:cs_managment.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "00E356ED1AD99517003FC87E"
-               BuildableName = "ReactNativeCallKeepDemoTests.xctest"
-               BlueprintName = "ReactNativeCallKeepDemoTests"
-               ReferencedContainer = "container:ReactNativeCallKeepDemo.xcodeproj">
+               BuildableName = "cs_managmentTests.xctest"
+               BlueprintName = "cs_managmentTests"
+               ReferencedContainer = "container:cs_managment.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "ReactNativeCallKeepDemo.app"
-            BlueprintName = "ReactNativeCallKeepDemo"
-            ReferencedContainer = "container:ReactNativeCallKeepDemo.xcodeproj">
+            BuildableName = "cs_managment.app"
+            BlueprintName = "cs_managment"
+            ReferencedContainer = "container:cs_managment.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "ReactNativeCallKeepDemo.app"
-            BlueprintName = "ReactNativeCallKeepDemo"
-            ReferencedContainer = "container:ReactNativeCallKeepDemo.xcodeproj">
+            BuildableName = "cs_managment.app"
+            BlueprintName = "cs_managment"
+            ReferencedContainer = "container:cs_managment.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
