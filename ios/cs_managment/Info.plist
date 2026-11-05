@@ -6,7 +6,7 @@
     <string>en</string>
 
     <key>CFBundleDisplayName</key>
-    <string>AHS CS Mananager</string>
+    <string>Achala Health Field Ops</string>
 
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
@@ -27,7 +27,7 @@
     <string>UAT_0.0.1</string>
 
     <key>CFBundleVersion</key>
-    <string>5</string>
+    <string>6</string>s
 
     <key>CFBundleSignature</key>
     <string>????</string>
